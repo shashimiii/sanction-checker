@@ -48,7 +48,9 @@ def run_check() -> str:
         return render_template("index.html", error="首列没有可查询的名称。")
 
     try:
-        sanctions_index = load_sanctions_index(DATA_DIR)
+        sanctions_index, source_stats = load_sanctions_index(DATA_DIR)
+        if source_stats.get("TOTAL", 0) < 1000:
+            return render_template("index.html", error=f"制裁数据集数量异常（TOTAL={source_stats.get('TOTAL',0)}）。请检查网络或手工更新 data/ 目录。")
         if not sanctions_index:
             return render_template(
                 "index.html",
@@ -71,6 +73,7 @@ def run_check() -> str:
         uncertain=result["summary"]["uncertain"],
         excel_url=url_for("download", folder="excel", filename=result["excel_filename"]),
         screenshot_url=url_for("download", folder="screenshots", filename=result["zip_filename"]),
+        source_stats=source_stats,
     )
 
 

@@ -10,6 +10,16 @@
     <li>未命中：{{ nohit }}</li>
     <li>待复核：{{ uncertain }}</li>
   </ul>
+
+  <h3>本次加载的数据条目数</h3>
+  <ul>
+    <li>OFAC SDN：{{ source_stats['OFAC SDN'] }}</li>
+    <li>UN Consolidated：{{ source_stats['UN Consolidated'] }}</li>
+    <li>EU Sanctions Map：{{ source_stats['EU Sanctions Map'] }}</li>
+    <li>PPATK(Manual)：{{ source_stats['PPATK(Manual)'] }}</li>
+    <li><b>TOTAL：{{ source_stats['TOTAL'] }}</b></li>
+  </ul>
+
   <p><a href="{{ excel_url }}">下载 Excel 结果</a></p>
   <p><a href="{{ screenshot_url }}">下载截图压缩包</a></p>
   <p><a href="/">返回首页</a></p>

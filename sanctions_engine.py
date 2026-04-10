@@ -33,11 +33,27 @@ def ensure_dirs() -> None:
         p.mkdir(parents=True, exist_ok=True)
 
 
-def _download(url: str, path: Path) -> bool:
+def _looks_valid(path: Path, kind: str) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    text = path.read_text(encoding="utf-8", errors="ignore")[:5000]
+    if kind == "ofac":
+        return "," in text and "SDN" in text.upper()
+    if kind == "un":
+        return "CONSOLIDATED" in text.upper() and "<" in text
+    if kind == "eu":
+        return "nameAlias" in text or "name" in text
+    return True
+
+
+def _download(url: str, path: Path, kind: str) -> bool:
     try:
         res = requests.get(url, timeout=60)
         res.raise_for_status()
         path.write_bytes(res.content)
+        if not _looks_valid(path, kind):
+            print(f"[WARN] 下载内容格式异常({kind})，可能是被网关拦截/返回HTML: {url}")
+            return False
         return True
     except Exception as exc:
         print(f"[WARN] 下载失败: {url} -> {exc}")
@@ -47,9 +63,9 @@ def _download(url: str, path: Path) -> bool:
 def refresh_data(data_dir: Path = DATA_DIR) -> dict[str, bool]:
     ensure_dirs()
     return {
-        "ofac": _download(OFAC_SDN_CSV, data_dir / "ofac_sdn.csv"),
-        "un": _download(UN_CONSOLIDATED_XML, data_dir / "un_consolidated.xml"),
-        "eu": _download(EU_FSFD_CSV, data_dir / "eu_fsf.csv"),
+        "ofac": _download(OFAC_SDN_CSV, data_dir / "ofac_sdn.csv", "ofac"),
+        "un": _download(UN_CONSOLIDATED_XML, data_dir / "un_consolidated.xml", "un"),
+        "eu": _download(EU_FSFD_CSV, data_dir / "eu_fsf.csv", "eu"),
     }
 
 
@@ -84,16 +100,12 @@ def _load_un_xml(path: Path) -> list[SanctionEntry]:
     root = ET.fromstring(path.read_bytes())
     for node in root.findall(".//INDIVIDUAL") + root.findall(".//ENTITY"):
         pieces = []
-        for tag in ["FIRST_NAME", "SECOND_NAME", "THIRD_NAME", "FOURTH_NAME", "NAME_ORIGINAL_SCRIPT"]:
+        for tag in ["FIRST_NAME", "SECOND_NAME", "THIRD_NAME", "FOURTH_NAME", "NAME_ORIGINAL_SCRIPT", "ENTITY_NAME"]:
             t = node.findtext(tag, default="").strip()
             if t:
                 pieces.append(t)
-        if not pieces:
-            whole = node.findtext("ENTITY_NAME", default="").strip() or node.findtext("FIRST_NAME", default="").strip()
-            if whole:
-                pieces = [whole]
         if pieces:
-            out.append(SanctionEntry(source="UN Consolidated", name=" ".join(pieces)))
+            out.append(SanctionEntry(source="UN Consolidated", name=" ".join(dict.fromkeys(pieces))))
     return out
 
 
@@ -129,23 +141,31 @@ def _safe_load(label: str, fn) -> list[SanctionEntry]:
         return []
 
 
-def load_sanctions_index(data_dir: Path = DATA_DIR) -> list[SanctionEntry]:
+def load_sanctions_index(data_dir: Path = DATA_DIR) -> tuple[list[SanctionEntry], dict[str, int]]:
     required = [data_dir / "ofac_sdn.csv", data_dir / "un_consolidated.xml", data_dir / "eu_fsf.csv"]
     if not all(p.exists() for p in required):
         refresh_data(data_dir)
 
-    entries: list[SanctionEntry] = []
-    entries.extend(_safe_load("OFAC", lambda: _load_ofac(data_dir / "ofac_sdn.csv")))
-    entries.extend(_safe_load("UN", lambda: _load_un_xml(data_dir / "un_consolidated.xml")))
-    entries.extend(_safe_load("EU", lambda: _load_eu(data_dir / "eu_fsf.csv")))
-    entries.extend(_safe_load("PPATK", lambda: _load_ppatk_manual(data_dir / "ppatk_manual.xlsx")))
+    ofac = _safe_load("OFAC", lambda: _load_ofac(data_dir / "ofac_sdn.csv"))
+    un = _safe_load("UN", lambda: _load_un_xml(data_dir / "un_consolidated.xml"))
+    eu = _safe_load("EU", lambda: _load_eu(data_dir / "eu_fsf.csv"))
+    ppatk = _safe_load("PPATK", lambda: _load_ppatk_manual(data_dir / "ppatk_manual.xlsx"))
 
+    entries: list[SanctionEntry] = [*ofac, *un, *eu, *ppatk]
     dedup = {}
     for e in entries:
         key = (e.source, _normalize(e.name))
         if key[1]:
             dedup[key] = e
-    return list(dedup.values())
+
+    stats = {
+        "OFAC SDN": len(ofac),
+        "UN Consolidated": len(un),
+        "EU Sanctions Map": len(eu),
+        "PPATK(Manual)": len(ppatk),
+        "TOTAL": len(dedup),
+    }
+    return list(dedup.values()), stats
 
 
 def _best_match(name: str, entries: Iterable[SanctionEntry]) -> tuple[SanctionEntry | None, float]:
