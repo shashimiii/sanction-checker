@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>查询完成</title></head>
+<body style="font-family:Arial,Helvetica,sans-serif;max-width:760px;margin:40px auto;">
+  <h2>查询完成</h2>
+  <p>任务编号：{{ run_id }}</p>
+  <ul>
+    <li>总数：{{ total }}</li>
+    <li>命中：{{ hit }}</li>
+    <li>未命中：{{ nohit }}</li>
+    <li>待复核：{{ uncertain }}</li>
+  </ul>
+  <p><a href="{{ excel_url }}">下载 Excel 结果</a></p>
+  <p><a href="{{ screenshot_url }}">下载截图压缩包</a></p>
+  <p><a href="/">返回首页</a></p>
+</body>
+</html>
